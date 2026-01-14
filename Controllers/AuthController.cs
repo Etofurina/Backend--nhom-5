@@ -75,23 +75,30 @@ public class AuthController : ControllerBase
 
 	// ================= LOGIN STEP 2 =================
 	[HttpPost("login-step2")]
-	public async Task<IActionResult> LoginStep2([FromBody] VerifyOtpDto request)
+	public async Task<IActionResult> LoginStep2(VerifyOtpDto request)
 	{
 		var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
 
-		if (user == null ||
-			user.OtpCode != request.OtpCode ||
-			user.OtpExpiration == null ||
-			user.OtpExpiration < DateTime.Now)
+		// ... (Giữ nguyên đoạn kiểm tra OTP) ...
+		if (user == null || user.OtpCode != request.OtpCode || user.OtpExpiration < DateTime.Now)
 		{
 			return BadRequest("Mã OTP sai hoặc đã hết hạn.");
 		}
 
+		// ... (Giữ nguyên đoạn xóa OTP) ...
 		user.OtpCode = null;
 		user.OtpExpiration = null;
 		await _context.SaveChangesAsync();
 
-		return Ok(CreateToken(user));
+		string token = CreateToken(user);
+
+		// --- SỬA ĐOẠN TRẢ VỀ Ở ĐÂY ---
+		// Trả về Object JSON chứa cả Token và Role
+		return Ok(new
+		{
+			token = token,
+			role = user.Role
+		});
 	}
 
 	// ================= FORGOT PASSWORD =================

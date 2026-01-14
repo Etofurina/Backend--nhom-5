@@ -20,6 +20,10 @@
 
 		public DbSet<CaroGame> CaroGames { get; set; }
 
+		public DbSet<MatchLog> MatchLogs { get; set; }
+
+		public DbSet<CaroMatch> CaroMatches { get; set; }
+
 		protected override void OnModelCreating(ModelBuilder modelBuilder)
 		{
 			modelBuilder.Entity<CaroGame>().ToTable("CaroGames");

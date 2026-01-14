@@ -11,7 +11,7 @@ namespace Web_API.Controllers
 {
 	[Route("api/[controller]")]
 	[ApiController]
-	[Authorize]
+	[Authorize] // 🔒 Mặc định: cần đăng nhập
 	public class RubikController : ControllerBase
 	{
 		private readonly AppDbContext _context;
@@ -21,11 +21,15 @@ namespace Web_API.Controllers
 			_context = context;
 		}
 
-		// 1. START GAME
+		// =========================
+		// 1. START GAME (AUTH)
+		// =========================
 		[HttpPost("start")]
 		public async Task<IActionResult> StartGame([FromBody] RubikStartDto request)
 		{
 			var email = User.FindFirstValue(ClaimTypes.Name);
+			if (email == null) return Unauthorized();
+
 			var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
 			if (user == null) return Unauthorized();
 
@@ -36,32 +40,29 @@ namespace Web_API.Controllers
 				PlayedAt = DateTime.Now
 			};
 
-			// Logic Thách Đấu
+			// Thách đấu
 			if (!string.IsNullOrEmpty(request.ChallengeCode))
 			{
-				// Tìm ván gốc có mã này
 				var parentGame = await _context.RubikGames
 					.FirstOrDefaultAsync(g => g.ChallengeCode == request.ChallengeCode);
 
-				if (parentGame == null) return BadRequest("Mã thách đấu không tồn tại!");
+				if (parentGame == null)
+					return BadRequest("Mã thách đấu không tồn tại!");
 
-				// Copy cấu hình của ván gốc
-				game.Scramble = parentGame.Scramble; // Quan trọng: Phải cùng đề
+				game.Scramble = parentGame.Scramble;
 				game.ParentMatchId = parentGame.Id;
 				game.Difficulty = parentGame.Difficulty;
-				game.Mode = 2; // Chế độ: Nhận thách đấu
+				game.Mode = 2; // Nhận kèo
 			}
 			else
 			{
-				// Chơi thường -> Tạo Scramble mới
 				game.Scramble = RubikHelper.GenerateScramble(request.Difficulty);
-				game.Mode = 0; // Chế độ: Thường
+				game.Mode = 0; // Chơi thường
 			}
 
 			_context.RubikGames.Add(game);
 			await _context.SaveChangesAsync();
 
-			// Trả về Scramble và TargetTime (nếu là thách đấu) để frontend hiện "Đối thủ đã giải trong 30s"
 			double? targetTime = null;
 			if (game.ParentMatchId != null)
 			{
@@ -77,26 +78,28 @@ namespace Web_API.Controllers
 			});
 		}
 
-		// 2. FINISH GAME
+		// =========================
+		// 2. FINISH GAME (AUTH)
+		// =========================
 		[HttpPost("finish")]
 		public async Task<IActionResult> FinishGame([FromBody] RubikFinishDto request)
 		{
 			var game = await _context.RubikGames.FindAsync(request.MatchId);
 			if (game == null) return NotFound("Game not found");
 
-			// Cập nhật kết quả
 			game.Duration = request.Duration;
 			game.Mistakes = request.Mistakes;
 
-			// Tính điểm: (Ví dụ: Khó * 1000 - Thời gian * 10 - Lỗi * 50)
 			int baseScore = game.Difficulty * 1000;
-			game.Score = (int)Math.Max(0, baseScore - (request.Duration * 10) - (request.Mistakes * 50));
+			game.Score = (int)Math.Max(
+				0,
+				baseScore - (request.Duration * 10) - (request.Mistakes * 50)
+			);
 
 			string message = "Hoàn thành!";
 			bool isWin = false;
 
-			// Xử lý logic Thách đấu
-			if (game.Mode == 2 && game.ParentMatchId != null) // Đang nhận kèo
+			if (game.Mode == 2 && game.ParentMatchId != null)
 			{
 				var parentGame = await _context.RubikGames.FindAsync(game.ParentMatchId);
 				if (parentGame != null && game.Duration < parentGame.Duration)
@@ -109,9 +112,9 @@ namespace Web_API.Controllers
 					message = "Bạn đã thua!";
 				}
 			}
-			else if (request.CreateChallenge) // Muốn tạo kèo mới
+			else if (request.CreateChallenge)
 			{
-				game.Mode = 1; // Chuyển thành chế độ "Tạo thách đấu"
+				game.Mode = 1;
 				game.ChallengeCode = RubikHelper.GenerateChallengeCode();
 				message = "Đã tạo mã thách đấu thành công.";
 			}
@@ -127,19 +130,22 @@ namespace Web_API.Controllers
 			});
 		}
 
-		// 3. LEADERBOARD
+		// =========================
+		// 3. LEADERBOARD (PUBLIC)
+		// =========================
+		
 		[HttpGet("leaderboard")]
 		public async Task<IActionResult> GetLeaderboard([FromQuery] int difficulty)
 		{
 			var query = _context.RubikGames
 				.Include(g => g.User)
-				.Where(g => g.Duration != null); // Chỉ lấy ván đã xong
+				.Where(g => g.Duration != null);
 
 			if (difficulty > 0)
 				query = query.Where(g => g.Difficulty == difficulty);
 
 			var leaderboard = await query
-				.OrderByDescending(g => g.Score) // Xếp theo điểm (hoặc Duration nếu anh muốn)
+				.OrderByDescending(g => g.Score)
 				.Take(10)
 				.Select(g => new
 				{
@@ -153,11 +159,15 @@ namespace Web_API.Controllers
 			return Ok(leaderboard);
 		}
 
-		// 4. HISTORY
+		// =========================
+		// 4. HISTORY (AUTH)
+		// =========================
 		[HttpGet("history")]
 		public async Task<IActionResult> GetHistory()
 		{
 			var email = User.FindFirstValue(ClaimTypes.Name);
+			if (email == null) return Unauthorized();
+
 			var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
 			if (user == null) return Unauthorized();
 
@@ -171,7 +181,9 @@ namespace Web_API.Controllers
 					g.Score,
 					Time = g.Duration,
 					Mode = g.Mode == 0 ? "Thường" : (g.Mode == 1 ? "Tạo Kèo" : "Nhận Kèo"),
-					Result = g.Mode == 2 ? (g.Score > 0 ? "Xong" : "Thua") : "Xong" // Logic hiển thị tạm
+					Result = g.Mode == 2
+						? (g.Score > 0 ? "Thắng" : "Thua")
+						: "Xong"
 				})
 				.ToListAsync();
 
