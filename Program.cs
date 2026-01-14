@@ -41,7 +41,15 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 // Controllers
 // =====================
 builder.Services.AddControllers();
-
+builder.Services.AddCors(options =>
+{
+	options.AddPolicy("AllowAll", builder =>
+	{
+		builder.AllowAnyOrigin()  // Cho phép mọi nơi truy cập (Frontend nào cũng được)
+			   .AllowAnyMethod()  // Cho phép mọi loại lệnh (GET, POST, PUT, DELETE...)
+			   .AllowAnyHeader(); // Cho phép mọi loại Header
+	});
+});
 // =====================
 // Swagger
 // =====================
@@ -92,7 +100,7 @@ if (app.Environment.IsDevelopment())
 	app.UseSwagger();
 	app.UseSwaggerUI();
 }
-
+app.UseCors("AllowAll");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapHub<Web_API.Hubs.ChatHub>("/chatHub");
